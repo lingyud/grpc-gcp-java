@@ -366,13 +366,13 @@ public class GrpcClient {
         offset += add;
         index++;
         if (index == 2) {
-          Thread.sleep(12*60*1000);
+          Thread.sleep(18*60*1000);
         }
         logger.warning("Iteration: " + index + "; offset: " + offset);
       }
       requestObserver.onCompleted();
 
-      if (!finishLatch.await(20, TimeUnit.MINUTES)) {
+      if (!finishLatch.await(25, TimeUnit.MINUTES)) {
         logger.warning("insertObject cannot finish within 20 minutes");
       }
     }
