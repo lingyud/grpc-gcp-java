@@ -126,14 +126,18 @@ public class GrpcClient {
     this.channels = new ManagedChannel[args.threads];
     if (args.rr) {
       // For round-robin, all threads share the same channel.
-      ManagedChannel singleChannel = channelBuilder.build();
+      ManagedChannel singleChannel = channelBuilder.keepAliveWithoutCalls(true)
+                  .keepAliveTime(120, TimeUnit.SECONDS)
+                  .keepAliveTimeout(60, TimeUnit.SECONDS).build();
       for (int i = 0; i < args.threads; i++) {
         channels[i] = singleChannel;
       }
     } else {
       // For pick-first, each thread has its own unique channel.
       for (int i = 0; i < args.threads; i++) {
-        channels[i] = channelBuilder.build();
+        channels[i] = channelBuilder.keepAliveWithoutCalls(true)
+                  .keepAliveTime(120, TimeUnit.SECONDS)
+                  .keepAliveTimeout(60, TimeUnit.SECONDS).build();
       }
     }
 
@@ -339,7 +343,7 @@ public class GrpcClient {
           };
 
       StreamObserver<WriteObjectRequest> requestObserver = asyncStub.writeObject(responseObserver);
-
+      int index = 0;
       while (offset < totalBytes) {
         int add;
         if (offset + Values.MAX_WRITE_CHUNK_BYTES_VALUE <= totalBytes) {
@@ -360,6 +364,11 @@ public class GrpcClient {
         }
 
         offset += add;
+        index++;
+        if (index == 2) {
+          Thread.sleep(8*60*1000);
+        }
+        logger.warning("Iteration: " + index + "; offset: " + offset);
       }
       requestObserver.onCompleted();
 
