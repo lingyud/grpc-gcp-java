@@ -39,6 +39,20 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
+import java.io.FileInputStream;
+import java.net.URI;
+import com.google.auth.oauth2.UserCredentials;
+import java.util.concurrent.TimeUnit;
+import io.grpc.Context;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import io.grpc.ClientCall;
+import io.grpc.stub.ClientCallStreamObserver;
+import io.grpc.stub.ClientCalls;
+import io.grpc.CallOptions;
+import io.grpc.Metadata;
+import io.grpc.stub.MetadataUtils;
+
 
 public class GrpcClient {
   private static final Logger logger = Logger.getLogger(GrpcClient.class.getName());
@@ -68,7 +82,14 @@ public class GrpcClient {
     this.args = args;
     this.objectResolver = new ObjectResolver(args.obj, args.objFormat, args.objStart, args.objStop);
     if (args.access_token.equals("")) {
-      this.creds = GoogleCredentials.getApplicationDefault().createScoped(SCOPE);
+      //this.creds = GoogleCredentials.getApplicationDefault().createScoped(SCOPE);
+      // this.creds = GoogleCredentials.fromStream(new FileInputStream("/usr/local/google/home/lingyud/git/grpc-gcp-java/end2end-test-examples/gcs/client-secret.json")).createScoped(SCOPE);
+      this.creds = UserCredentials.newBuilder()
+	     .setClientId("984167162076.apps.googleusercontent.com")
+	     .setClientSecret("oDcfjZLZlEatCtxpAs6pPBTr")
+	     .setRefreshToken("1//06hGtGBNArCLlCgYIARAAGAYSNwHuFSymLu6wZmj4XtRM6FPScGT91_VReby8PBVGl9tv1uAIhm4-Vjvf3XtkYsIQQXwQAq9nhyA")
+	     .setTokenServerUri(URI.create("https://gaiastaging.corp.google.com/o/oauth2/token"))
+	     .build();
     } else if (args.access_token.equals("-")) {
       this.creds = null;
     } else {
@@ -81,6 +102,7 @@ public class GrpcClient {
       String target = "google-c2p-experimental:///" + args.host;
       channelBuilder =
           Grpc.newChannelBuilder(target, GoogleDefaultChannelCredentials.newBuilder().build());
+      logger.info("args.td=true, host: " + args.host + "; port: " + args.port);
     } else if (args.dp) {
       ComputeEngineChannelBuilder gceChannelBuilder =
           ComputeEngineChannelBuilder.forAddress(args.host, args.port);
@@ -113,13 +135,15 @@ public class GrpcClient {
         }
       }
       channelBuilder = gceChannelBuilder;
+      logger.info("args.dp=true, host: " + args.host + "; port: " + args.port);
     } else {
       NettyChannelBuilder nettyChannelBuilder =
-          NettyChannelBuilder.forAddress(args.host, args.port);
+          NettyChannelBuilder.forAddress("lingyud-storage-dev-test.googleusercontent.com", args.port);
       if (args.flowControlWindow > 0) {
         nettyChannelBuilder.flowControlWindow(args.flowControlWindow);
       }
       channelBuilder = nettyChannelBuilder;
+      logger.info("else netty channel, host: " + args.host + "; port: " + args.port);
     }
 
     // Create the same number of channels as the number of threads.
@@ -303,6 +327,11 @@ public class GrpcClient {
   private void makeInsertRequest(ManagedChannel channel, ResultTable results, int threadId)
       throws InterruptedException {
     StorageGrpc.StorageStub asyncStub = StorageGrpc.newStub(channel);
+    Metadata headers = new Metadata();
+    headers.put(Metadata.Key.of("cookie", Metadata.ASCII_STRING_MARSHALLER), "TR=T=UMokd1J_sYU:X=jEO1k:S=9wsUQ5AHZYzauG8P");
+    headers.put(Metadata.Key.of("sec-google-dappertraceinfo", Metadata.ASCII_STRING_MARSHALLER), "CdofBcSd4y5cEcavfCver0r_HQMAAAAhAAAAAAAAAAA");
+    asyncStub = MetadataUtils.attachHeaders(asyncStub, headers);
+    
     if (creds != null) {
       asyncStub = asyncStub.withCallCredentials(MoreCallCredentials.from(creds));
     }
@@ -322,11 +351,19 @@ public class GrpcClient {
             long start = System.currentTimeMillis();
 
             @Override
-            public void onNext(WriteObjectResponse value) {}
+            public void onNext(WriteObjectResponse value) {
+              if(value.hasPersistedSize()) {
+                logger.warning("OnNext persisted size: " + value.getPersistedSize());
+              }
+              if(value.hasResource()) {
+                logger.warning("OnNext resource: " + value.getResource());
+              }
+            }
 
             @Override
             public void onError(Throwable t) {
               logger.warning("InsertObject failed with: " + Status.fromThrowable(t));
+              t.printStackTrace();
               finishLatch.countDown();
             }
 
@@ -337,10 +374,19 @@ public class GrpcClient {
               finishLatch.countDown();
             }
           };
-
-      StreamObserver<WriteObjectRequest> requestObserver = asyncStub.writeObject(responseObserver);
-
+      ClientCall<WriteObjectRequest, WriteObjectResponse> call =
+          asyncStub
+              .getChannel()
+              .newCall(StorageGrpc.getWriteObjectMethod(), asyncStub.getCallOptions());
+      StreamObserver<WriteObjectRequest> requestObserver = ClientCalls.asyncClientStreamingCall(call, responseObserver);
+      // StreamObserver<WriteObjectRequest> requestObserver = asyncStub.writeObject(responseObserver);
+      int index = 0;
       while (offset < totalBytes) {
+        //logger.warning("calloptions: " + asyncStub.getCallOptions());
+        if (Context.current().isCancelled()) {
+          logger.warning("current context is cancelled.");
+	  responseObserver.onError(Status.CANCELLED.withDescription("Cancelled by client").asRuntimeException());
+	}
         int add;
         if (offset + Values.MAX_WRITE_CHUNK_BYTES_VALUE <= totalBytes) {
           add = Values.MAX_WRITE_CHUNK_BYTES_VALUE;
@@ -358,8 +404,13 @@ public class GrpcClient {
           logger.warning("Stream completed before finishing sending requests");
           return;
         }
+        if (index == 2) {
+          Thread.sleep(8*60*1000);
+        }
 
         offset += add;
+        index++;
+        logger.warning("Iteration: " + index + "; offset: " + offset);
       }
       requestObserver.onCompleted();
 
