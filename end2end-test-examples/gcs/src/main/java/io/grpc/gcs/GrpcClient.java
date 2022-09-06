@@ -126,18 +126,14 @@ public class GrpcClient {
     this.channels = new ManagedChannel[args.threads];
     if (args.rr) {
       // For round-robin, all threads share the same channel.
-      ManagedChannel singleChannel = channelBuilder.keepAliveWithoutCalls(true)
-                  .keepAliveTime(120, TimeUnit.SECONDS)
-                  .keepAliveTimeout(60, TimeUnit.SECONDS).build();
+      ManagedChannel singleChannel = channelBuilder.idleTimeout(30L, TimeUnit.MINUTES).build();
       for (int i = 0; i < args.threads; i++) {
         channels[i] = singleChannel;
       }
     } else {
       // For pick-first, each thread has its own unique channel.
       for (int i = 0; i < args.threads; i++) {
-        channels[i] = channelBuilder.keepAliveWithoutCalls(true)
-                  .keepAliveTime(120, TimeUnit.SECONDS)
-                  .keepAliveTimeout(60, TimeUnit.SECONDS).build();
+        channels[i] = channelBuilder.idleTimeout(30L, TimeUnit.MINUTES).build();
       }
     }
 
