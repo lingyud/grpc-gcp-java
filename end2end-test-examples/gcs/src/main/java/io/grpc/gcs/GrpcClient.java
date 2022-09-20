@@ -308,6 +308,7 @@ public class GrpcClient {
       throws InterruptedException, IOException {
     final String obj = objectResolver.Resolve(threadId, 0);
     String uploadId = startResumableWriteRequest(channel, obj);
+    logger.info("start resumable write succeeded, upload Id: " + uploadId);
     StorageGrpc.StorageStub asyncStub = StorageGrpc.newStub(channel);
     if (creds != null) {
       asyncStub = asyncStub.withCallCredentials(MoreCallCredentials.from(creds));
@@ -398,6 +399,7 @@ public class GrpcClient {
   
   // return upload id
   private String startResumableWriteRequest(ManagedChannel channel, String obj) throws IOException{
+    logger.info("start resumable write");
     StorageBlockingStub stub = StorageGrpc.newBlockingStub(channel);
     if (creds != null) {
       stub = stub.withCallCredentials(MoreCallCredentials.from(creds));
