@@ -370,7 +370,9 @@ public class GrpcClient {
         index++;
         
         // sleep 1 min
-        Thread.sleep(60*1000);
+        if (index == 3) {
+            Thread.sleep(30*60*1000);
+        }
 
         logger.warning("Iteration: " + index + "; offset: " + offset);
       }
