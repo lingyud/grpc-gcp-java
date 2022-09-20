@@ -12,6 +12,8 @@ import com.google.storage.v2.ChecksummedData;
 import com.google.storage.v2.Object;
 import com.google.storage.v2.ReadObjectRequest;
 import com.google.storage.v2.ReadObjectResponse;
+import com.google.storage.v2.StartResumableWriteRequest;
+import com.google.storage.v2.StartResumableWriteResponse;
 import com.google.storage.v2.ServiceConstants.Values;
 import com.google.storage.v2.StorageGrpc;
 import com.google.storage.v2.StorageGrpc.StorageBlockingStub;
@@ -145,7 +147,7 @@ public class GrpcClient {
     logger.info("useZeroCopy: " + useZeroCopy);
   }
 
-  public void startCalls(ResultTable results) throws InterruptedException {
+  public void startCalls(ResultTable results) throws InterruptedException, IOException {
     ManagedChannel channel = this.channels[0];
     if (args.threads == 1) {
       try {
@@ -194,6 +196,8 @@ public class GrpcClient {
                     try {
                       makeInsertRequest(this.channels[finalI], results, finalI + 1);
                     } catch (InterruptedException e) {
+                      e.printStackTrace();
+                    } catch (IOException e) {
                       e.printStackTrace();
                     }
                   };
@@ -301,7 +305,9 @@ public class GrpcClient {
   }
 
   private void makeInsertRequest(ManagedChannel channel, ResultTable results, int threadId)
-      throws InterruptedException {
+      throws InterruptedException, IOException {
+    final String obj = objectResolver.Resolve(threadId, 0);
+    String uploadId = startResumableWriteRequest(channel, obj);
     StorageGrpc.StorageStub asyncStub = StorageGrpc.newStub(channel);
     if (creds != null) {
       asyncStub = asyncStub.withCallCredentials(MoreCallCredentials.from(creds));
@@ -310,7 +316,7 @@ public class GrpcClient {
     int totalBytes = args.size * 1024;
     byte[] data = new byte[totalBytes];
     for (int i = 0; i < args.calls; i++) {
-      String obj = objectResolver.Resolve(threadId, i);
+      //obj = objectResolver.Resolve(threadId, i);
 
       int offset = 0;
       boolean isFirst = true;
@@ -352,7 +358,7 @@ public class GrpcClient {
         }
 
         WriteObjectRequest req =
-            getWriteRequest(isFirst, isLast, offset, ByteString.copyFrom(data, offset, add), obj);
+            getWriteRequest(isFirst, isLast, offset, ByteString.copyFrom(data, offset, add), uploadId);
         requestObserver.onNext(req);
         if (finishLatch.getCount() == 0) {
           logger.warning("Stream completed before finishing sending requests");
@@ -361,9 +367,10 @@ public class GrpcClient {
 
         offset += add;
         index++;
-        if (index == 2) {
-          Thread.sleep(18*60*1000);
-        }
+        
+        // sleep 1 min
+        Thread.sleep(60*1000);
+
         logger.warning("Iteration: " + index + "; offset: " + offset);
       }
       requestObserver.onCompleted();
@@ -375,13 +382,10 @@ public class GrpcClient {
   }
 
   private WriteObjectRequest getWriteRequest(
-      boolean first, boolean last, int offset, ByteString bytes, String obj) {
+      boolean first, boolean last, int offset, ByteString bytes, String uploadId) {
     WriteObjectRequest.Builder builder = WriteObjectRequest.newBuilder();
     if (first) {
-      builder.setWriteObjectSpec(
-          WriteObjectSpec.newBuilder()
-              .setResource(Object.newBuilder().setBucket(toV2BucketName(args.bkt)).setName(obj))
-              .build());
+      builder.setUploadId(uploadId);
     }
 
     builder.setChecksummedData(ChecksummedData.newBuilder().setContent(bytes).build());
@@ -390,5 +394,28 @@ public class GrpcClient {
       builder.setFinishWrite(true);
     }
     return builder.build();
+  }
+  
+  // return upload id
+  private String startResumableWriteRequest(ManagedChannel channel, String obj) throws IOException{
+    StorageBlockingStub stub = StorageGrpc.newBlockingStub(channel);
+    if (creds != null) {
+      stub = stub.withCallCredentials(MoreCallCredentials.from(creds));
+    }
+
+    StartResumableWriteRequest.Builder builder = StartResumableWriteRequest.newBuilder();
+    builder.setWriteObjectSpec(
+	  WriteObjectSpec.newBuilder()
+	      .setResource(Object.newBuilder().setBucket(toV2BucketName(args.bkt)).setName(obj))
+	      .build());
+    
+    try {
+        StartResumableWriteResponse response = stub.startResumableWrite(builder.build());
+        return response.getUploadId();
+    } catch (Exception e) {
+        throw new IOException(
+            String.format("Interrupted while awaiting response during upload of '%s'", obj),
+            e);
+    }
   }
 }
