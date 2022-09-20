@@ -308,7 +308,7 @@ public class GrpcClient {
       throws InterruptedException, IOException {
     final String obj = objectResolver.Resolve(threadId, 0);
     String uploadId = startResumableWriteRequest(channel, obj);
-    logger.info("start resumable write succeeded, upload Id: " + uploadId);
+    logger.info("start resumable write succeeded, uploadId: " + uploadId);
     StorageGrpc.StorageStub asyncStub = StorageGrpc.newStub(channel);
     if (creds != null) {
       asyncStub = asyncStub.withCallCredentials(MoreCallCredentials.from(creds));
