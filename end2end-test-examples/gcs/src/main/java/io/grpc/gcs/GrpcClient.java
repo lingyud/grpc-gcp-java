@@ -10,6 +10,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.protobuf.ByteString;
 import com.google.storage.v2.ChecksummedData;
 import com.google.storage.v2.Object;
+import com.google.storage.v2.ObjectChecksums;
 import com.google.storage.v2.ReadObjectRequest;
 import com.google.storage.v2.ReadObjectResponse;
 import com.google.storage.v2.StartResumableWriteRequest;
@@ -371,7 +372,7 @@ public class GrpcClient {
         
         // sleep 1 min
         if (index == 3) {
-            Thread.sleep(30*60*1000);
+            //Thread.sleep(30*60*1000);
         }
 
         logger.warning("Iteration: " + index + "; offset: " + offset);
@@ -389,6 +390,7 @@ public class GrpcClient {
     WriteObjectRequest.Builder builder = WriteObjectRequest.newBuilder();
     if (first) {
       builder.setUploadId(uploadId);
+      builder.setObjectChecksums(ObjectChecksums.newBuilder().setCrc32C(12345).build());
     }
 
     builder.setChecksummedData(ChecksummedData.newBuilder().setContent(bytes).build());
